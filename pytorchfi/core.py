@@ -50,16 +50,18 @@ class FaultInjection:
             raise AssertionError("Error: Batch size must be an integer greater than 1.")
         if len(layer_types) < 0:
             raise AssertionError("Error: At least one layer type must be selected.")
-
+        
         handles, _shapes, self.weights_size = self._traverse_model_set_hooks(
             self.original_model, self._inj_layer_types
         )
 
+        # Tạo dummy tensor để chạy qua model
         dummy_shape = (1, *self._input_shape)  # profiling only needs one batch element
         model_dtype = next(model.parameters()).dtype
         device = "cuda" if self.use_cuda else None
         _dummy_tensor = torch.randn(dummy_shape, dtype=model_dtype, device=device)
-
+        
+        # Mỗi lần một layer chạy, hook sẽ được gọi → lưu lại output_size, layers_type,
         self.original_model(_dummy_tensor)
 
         for index, _handle in enumerate(handles):
@@ -139,7 +141,7 @@ class FaultInjection:
                     handles.append(layer.register_forward_hook(hook))
                 else:
                     for i in layer_types:
-                        if isinstance(layer, i):
+                        if isinstance(layer, i): # Nếu layer là layer giống trong layer_types truyền vào thì mới đặt hook
                             hook = injFunc if customInj else self._set_value
                             handles.append(layer.register_forward_hook(hook))
             # unpack node

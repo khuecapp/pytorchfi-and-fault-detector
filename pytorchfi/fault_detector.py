@@ -1,0 +1,277 @@
+"""pytorchfi.fault_detector provides fault detection functionality"""
+import logging
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from typing import List, Tuple, Callable, Optional
+
+# logging.basicConfig(
+#     level=logging.INFO,     
+#     format="%(levelname)s: %(message)s"
+# )
+
+class FaultDetector:
+    def __init__(
+        self,
+        model: nn.Module,
+        layer_types: List = None,
+        #detector_function: Optional[Callable] = None,
+        use_cuda: bool = False,
+        remove_bias: bool = False,
+    ):
+        """
+        Initialize Fault Detector
+        Args:
+            model: PyTorch model to monitor
+            layer_types: List of layer types to monitor (default: [nn.Conv2d])
+            detector_function: Custom detection function(input_tensor, output_tensor) -> bool
+                              If None, uses default detector (can be implemented later)
+            use_cuda: Whether to use CUDA
+            remove_bias: If True, remove bias from output before detection (default: False)
+        """
+        if layer_types is None:
+            layer_types = [nn.Conv2d]
+        
+        self.model = model
+        self.layer_types = layer_types
+        #self.detector_function = detector_function
+        self.use_cuda = use_cuda
+        self.remove_bias = remove_bias
+        
+        # Store captured data
+        self.layer_inputs = []
+        self.layer_outputs = []
+        self.layer_names = []
+        self.layer_weights = []
+        self.detection_results = []
+        
+        # Hooks
+        self.handles = []
+            
+    def _hook_fn(self, layer_name: str):
+        """
+        Create a forward hook function for a layer
+        Args:
+            layer_name: Name of the layer 
+        Returns:
+            Hook function for each layer
+        """
+        def hook(module, input_val, output):
+            # Remove bias from output (if requested)
+            output_to_process = output
+            if self.remove_bias and hasattr(module, 'bias') and module.bias is not None:
+                # Reshape bias for broadcasting: [out_channels] -> [1, out_channels, 1, 1]
+                bias_reshaped = module.bias.view(1, -1, 1, 1)
+                output_to_process = output - bias_reshaped
+            
+            # Capture input and output
+            self.layer_inputs.append((layer_name, input_val))
+            self.layer_outputs.append((layer_name, output_to_process))
+            
+            # Capture weight information if the layer has weights
+            if hasattr(module, 'weight') and module.weight is not None:
+                self.layer_weights.append((layer_name, module.weight.data.clone()))
+            else:
+                self.layer_weights.append((layer_name, None))
+            # Get weight data
+            weight_data = module.weight.data.clone() if hasattr(module, 'weight') and module.weight is not None else None
+            # Set fault detector
+            is_error = self.default_detector(input_val, output_to_process, weight_data)
+            self.detection_results.append({
+                'layer_name': layer_name,
+                'is_error': is_error,
+                'input_shape': [t.shape for t in input_val] if isinstance(input_val, tuple) else input_val.shape,
+                'output_shape': output_to_process.shape,
+                'weight_shape': module.weight.shape if hasattr(module, 'weight') and module.weight is not None else None,
+            })                    
+
+        return hook
+    
+    def register_hooks(self):
+        """
+        Register forward hooks on all target layers
+        """
+        self._clear_hooks()
+        
+        for name, layer in self.model.named_modules():
+            if self._is_target_layer(layer):
+                handle = layer.register_forward_hook(self._hook_fn(name))
+                self.handles.append(handle) # handles is a list of hook handles for every registered hook on a layer
+                logging.info(f"Registered hook on layer: {name}")
+    
+    def _is_target_layer(self, layer: nn.Module) -> bool:
+        """
+        Check if layer should be monitored
+        Args:
+            layer: The layer to check
+        Returns:
+            True if layer type is in layer_types
+        """
+        for layer_type in self.layer_types:
+            if isinstance(layer, layer_type):
+                return True
+        return False
+    
+    def _clear_hooks(self):
+        """Remove all registered hooks"""
+        for handle in self.handles:
+            handle.remove()
+        self.handles = []
+    
+    def clear_data(self):
+        """Clear captured data"""
+        self.layer_inputs = []
+        self.layer_outputs = []
+        self.layer_weights = []
+        self.layer_names = []
+        self.detection_results = []
+    
+    # Not used
+    def get_layer_data(self, layer_name: str = None) -> dict:
+        """
+        Get captured data for a specific layer or all layers
+        Args:
+            layer_name: Name of layer to retrieve. If None, returns all data.
+        Returns:
+            Dictionary containing input/output/weight data
+        """
+        if layer_name is None:
+            return {
+                'inputs': self.layer_inputs,
+                'outputs': self.layer_outputs,
+                'weights': self.layer_weights,
+                'detection_results': self.detection_results,
+            }
+        else:
+            layer_input = next((inp for name, inp in self.layer_inputs if name == layer_name), None)
+            layer_output = next((out for name, out in self.layer_outputs if name == layer_name), None)
+            layer_weight = next((w for name, w in self.layer_weights if name == layer_name), None)
+            layer_detection = next((det for det in self.detection_results if det['layer_name'] == layer_name), None)
+            
+            return {
+                'input': layer_input,
+                'output': layer_output,
+                'weight': layer_weight,
+                'detection': layer_detection,
+            }
+    
+    def get_detection_results(self) -> List[dict]:
+        """
+        Get all detection results
+        
+        Returns:
+            List of detection result dictionaries
+        """
+        return self.detection_results
+
+    def get_error_layers(self) -> List[str]:
+        """
+        Get list of layers where errors were detected
+        
+        Returns:
+            List of layer names with detected errors
+        """
+        return [det['layer_name'] for det in self.detection_results if det['is_error']]
+    
+    def default_detector(self, input_tensors, output_tensor, weight_tensor):
+        """    
+        Args:
+            input_tensors: Input tensors
+            output_tensor: Output tensors
+            weight_tensor: Weight tensors
+            
+        Returns:
+            True if error detected, False otherwise
+        """
+        # print("input type:", type(input_tensors), "len:", len(input_tensors) if isinstance(input_tensors, (tuple, list)) else "-")
+        inp = input_tensors[0] if isinstance(input_tensors, (tuple, list)) else input_tensors
+        inp_pad = F.pad(inp, (1, 1, 1, 1), mode="constant", value=0)
+        # print("input shape:", inp.shape if inp is not None else None)
+        out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor
+        # print("output shape:", out.shape if out is not None else None)
+        
+        # Input checksum computation
+        no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
+        channels, rows, cols = inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
+        
+        sum = torch.zeros(channels, ker_size, ker_size) 
+        for ch in range(channels):
+            for r in range(ker_size):
+                for c in range(ker_size):
+                    window = inp_pad[0, ch, r:r+rows-2, c:c+cols-2]
+                    sum[ch, r, c] = window.sum()
+
+        mul = torch.zeros(no_ker, channels, ker_size, ker_size) 
+        for no in range(no_ker):
+            for ch in range(channels):
+                for r in range(ker_size):
+                    for c in range(ker_size):
+                        mul[no, ch, r, c] = weight_tensor[no, ch, r, c] * sum[ch, r, c]
+        
+        input_checksum = torch.zeros(no_ker, 1)
+        for no in range(no_ker):
+            input_checksum[no] = mul[no, :, :, :].sum()
+
+        #print (f"input checksum {input_checksum}")
+        
+        # Output checksum computation
+        output_checksum = torch.zeros(no_ker, 1)
+        for no in range(no_ker):
+            output_checksum[no] = out[0, no, :, :].sum()
+        
+        #print(f"output_checksum {output_checksum}")
+        
+        # fault detection
+        errors = torch.zeros(no_ker, 1)
+        errors_list = []
+        for no in range(no_ker):
+            if input_checksum[no] != output_checksum[no]:
+                errors[no] = 1
+                errors_list.append(no)
+        #print(f"errors {errors}")
+        print(f"errors_list {errors_list}")
+        if errors.sum() > 0:
+            return True
+        else:
+            return False
+    
+    def print_detection_detailed_summary(self) -> str:
+        """
+        Print summary of detection results
+        
+        Returns:
+            Summary string
+        """
+        summary_str = "============================ FAULT DETECTION SUMMARY ============================\n\n"
+        summary_str += "Overall:\n"
+        summary_str += f" • Model: {self.model.__class__.__name__}\n"
+        summary_str += f" • Total layers monitored: {len(set([name for name, _ in self.layer_inputs]))}\n"
+        summary_str += f" • Model's layers: {[name for name, _ in self.model.named_modules() if name != '']}\n"
+        #summary_str += f"  Total inferences captured: {len(self.layer_outputs)}\n"
+        summary_str += f" • Errors detected: {len(self.get_error_layers())}\n"
+        summary_str += f" • Error layer: {self.get_error_layers()}\n\n"
+        
+        if self.detection_results:
+            summary_str += "Detailed Results:\n"
+            # summary_str += "-" * 80 + "\n"
+            for det in self.detection_results:
+                status = "Error" if det['is_error'] else "No error"
+                summary_str += f"Layer: {det['layer_name']}\n"
+                summary_str += f" • Status: {status}\n"
+                summary_str += f" • Input shape: {det['input_shape'][0]}\n"
+                summary_str += f" • Weight shape: {det['weight_shape']}\n"
+                summary_str += f" • Output shape: {det['output_shape']}\n\n"
+        
+        summary_str += "=" * 80 + "\n"
+        logging.info(summary_str)
+        return summary_str
+    
+    def __enter__(self):
+        """Context manager entry"""
+        self.register_hooks()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self._clear_hooks()
+        return False
