@@ -80,7 +80,6 @@ def main():
     detector = fd.FaultDetector(
         model=pfi.corrupted_model,
         layer_types=[nn.Conv2d],
-        #detector_function=fd.default_detector,
         use_cuda=torch.cuda.is_available(),
         remove_bias=True
     )
