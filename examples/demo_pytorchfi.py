@@ -97,11 +97,6 @@ def main():
     
     # Print detection results
     print("\n")
-    # error_layers = detector.get_error_layers()
-    # if error_layers:
-    #     print(f"Layers with detected errors: {error_layers}")
-    # else:
-    #     print("No errors detected in any layers")
     print(detector.print_detection_detailed_summary())
     
 if __name__ == "__main__":
