@@ -200,6 +200,8 @@ class FaultDetector:
             
             for no in range(no_ker):
                 input_checksum[no] = mul[no, :].sum()
+        else:
+            return False # Unsupported kernel size
                     
         print (f"input checksum {input_checksum}")
         
