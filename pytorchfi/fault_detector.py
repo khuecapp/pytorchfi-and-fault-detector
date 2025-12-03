@@ -203,14 +203,14 @@ class FaultDetector:
         else:
             return False # Unsupported kernel size
                     
-        print (f"input checksum {input_checksum}")
+        #print (f"input checksum {input_checksum}")
         
         # Output checksum computation
         output_checksum = torch.zeros(no_ker, 1)
         for no in range(no_ker):
             output_checksum[no] = out[0, no, :, :].sum()
         
-        print(f"output_checksum {output_checksum}")
+        #print(f"output_checksum {output_checksum}")
         
         # fault detection
         errors = torch.zeros(no_ker, 1)
