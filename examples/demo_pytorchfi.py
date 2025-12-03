@@ -26,22 +26,40 @@ from pytorchfi import weight_error_models as wem
 from pytorchfi import fault_detector as fd
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
-        self.fc = nn.Linear(16 * 8 * 8, 10)
+        
+        # Block 1: Conv 3x3 + Pool
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)   # giữ nguyên spatial size
+        self.conv1_pointwise = nn.Conv2d(16, 16, kernel_size=1)   # 1x1 conv
+
+        # Block 2: Conv 3x3 + Pool
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.conv2_pointwise = nn.Conv2d(32, 32, kernel_size=1)
+
+        # Sau 2 lần pooling, từ 32x32 -> 8x8
+        self.fc = nn.Linear(32 * 8 * 8, 10)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2)  # 16x16
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2)  # 8x8
-        x = x.view(x.size(0), -1)
+        # Block 1
+        x = F.relu(self.conv1(x))               # 16 x 32 x 32
+        x = F.relu(self.conv1_pointwise(x))     # 16 x 32 x 32
+        x = F.max_pool2d(x, 2)                  # 16 x 16 x 16
+
+        # Block 2
+        x = F.relu(self.conv2(x))               # 32 x 16 x 16
+        x = F.relu(self.conv2_pointwise(x))     # 32 x 16 x 16
+        x = F.max_pool2d(x, 2)                  # 32 x 8 x 8
+
+        # Flatten
+        x = x.view(x.size(0), -1)               # 32*8*8
         x = self.fc(x)
         return x
-
 
 def main():
     # Prepare model and data

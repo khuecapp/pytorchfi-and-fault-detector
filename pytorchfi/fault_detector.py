@@ -100,13 +100,6 @@ class FaultDetector:
                 logging.info(f"Registered hook on layer: {name}")
     
     def _is_target_layer(self, layer: nn.Module) -> bool:
-        """
-        Check if layer should be monitored
-        Args:
-            layer: The layer to check
-        Returns:
-            True if layer type is in layer_types
-        """
         for layer_type in self.layer_types:
             if isinstance(layer, layer_type):
                 return True
@@ -128,13 +121,6 @@ class FaultDetector:
     
     # Not used
     def get_layer_data(self, layer_name: str = None) -> dict:
-        """
-        Get captured data for a specific layer or all layers
-        Args:
-            layer_name: Name of layer to retrieve. If None, returns all data.
-        Returns:
-            Dictionary containing input/output/weight data
-        """
         if layer_name is None:
             return {
                 'inputs': self.layer_inputs,
@@ -156,21 +142,9 @@ class FaultDetector:
             }
     
     def get_detection_results(self) -> List[dict]:
-        """
-        Get all detection results
-        
-        Returns:
-            List of detection result dictionaries
-        """
         return self.detection_results
 
     def get_error_layers(self) -> List[str]:
-        """
-        Get list of layers where errors were detected
-        
-        Returns:
-            List of layer names with detected errors
-        """
         return [det['layer_name'] for det in self.detection_results if det['is_error']]
     
     def default_detector(self, input_tensors, output_tensor, weight_tensor):
@@ -189,37 +163,52 @@ class FaultDetector:
         # print("input shape:", inp.shape if inp is not None else None)
         out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor
         # print("output shape:", out.shape if out is not None else None)
+        # print (weight_tensor.shape if weight_tensor is not None else None)
         
         # Input checksum computation
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
         channels, rows, cols = inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
-        
-        sum = torch.zeros(channels, ker_size, ker_size) 
-        for ch in range(channels):
-            for r in range(ker_size):
-                for c in range(ker_size):
-                    window = inp_pad[0, ch, r:r+rows-2, c:c+cols-2]
-                    sum[ch, r, c] = window.sum()
-
-        mul = torch.zeros(no_ker, channels, ker_size, ker_size) 
-        for no in range(no_ker):
+        input_checksum = torch.zeros(no_ker, 1)
+        if ker_size == 3: # 3x3 convolution
+            sum = torch.zeros(channels, ker_size, ker_size) 
             for ch in range(channels):
                 for r in range(ker_size):
                     for c in range(ker_size):
-                        mul[no, ch, r, c] = weight_tensor[no, ch, r, c] * sum[ch, r, c]
-        
-        input_checksum = torch.zeros(no_ker, 1)
-        for no in range(no_ker):
-            input_checksum[no] = mul[no, :, :, :].sum()
+                        window = inp_pad[0, ch, r:r+rows-2, c:c+cols-2]
+                        sum[ch, r, c] = window.sum()
 
-        #print (f"input checksum {input_checksum}")
+            mul = torch.zeros(no_ker, channels, ker_size, ker_size) 
+            for no in range(no_ker):
+                for ch in range(channels):
+                    for r in range(ker_size):
+                        for c in range(ker_size):
+                            mul[no, ch, r, c] = weight_tensor[no, ch, r, c] * sum[ch, r, c]
+            
+            for no in range(no_ker):
+                input_checksum[no] = mul[no, :, :, :].sum()
+        
+        elif ker_size == 1: # 1x1 convolution
+            sum = torch.zeros(channels, 1)
+            for ch in range(channels):
+                window = inp[0, ch, :, :]
+                sum[ch] = window.sum()
+            
+            mul = torch.zeros(no_ker, channels)
+            for no in range(no_ker):
+                for ch in range(channels):
+                    mul[no, ch] = weight_tensor[no, ch, 0, 0] * sum[ch, 0]
+            
+            for no in range(no_ker):
+                input_checksum[no] = mul[no, :].sum()
+                    
+        print (f"input checksum {input_checksum}")
         
         # Output checksum computation
         output_checksum = torch.zeros(no_ker, 1)
         for no in range(no_ker):
             output_checksum[no] = out[0, no, :, :].sum()
         
-        #print(f"output_checksum {output_checksum}")
+        print(f"output_checksum {output_checksum}")
         
         # fault detection
         errors = torch.zeros(no_ker, 1)
@@ -228,8 +217,6 @@ class FaultDetector:
             if input_checksum[no] != output_checksum[no]:
                 errors[no] = 1
                 errors_list.append(no)
-        #print(f"errors {errors}")
-        print(f"errors_list {errors_list}")
         if errors.sum() > 0:
             return True
         else:
@@ -246,7 +233,7 @@ class FaultDetector:
         summary_str += "Overall:\n"
         summary_str += f" • Model: {self.model.__class__.__name__}\n"
         summary_str += f" • Total layers monitored: {len(set([name for name, _ in self.layer_inputs]))}\n"
-        summary_str += f" • Model's layers: {[name for name, _ in self.model.named_modules() if name != '']}\n"
+        summary_str += f" • Model's Conv2d layers: {[name for name, module in self.model.named_modules() if isinstance(module, nn.Conv2d)]}\n"
         #summary_str += f"  Total inferences captured: {len(self.layer_outputs)}\n"
         summary_str += f" • Errors detected: {len(self.get_error_layers())}\n"
         summary_str += f" • Error layer: {self.get_error_layers()}\n\n"
@@ -261,7 +248,8 @@ class FaultDetector:
                 summary_str += f" • Input shape: {det['input_shape'][0]}\n"
                 summary_str += f" • Weight shape: {det['weight_shape']}\n"
                 summary_str += f" • Output shape: {det['output_shape']}\n\n"
-        
+        else:
+            summary_str += "No errors detected.\n"
         summary_str += "=" * 80 + "\n"
         logging.info(summary_str)
         return summary_str
