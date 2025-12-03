@@ -214,15 +214,14 @@ class FaultDetector:
         
         # fault detection
         errors = torch.zeros(no_ker, 1)
-        errors_list = []
+        tolerance = 1e-5  # Adjust due to floating point precision
+        errors = torch.zeros(no_ker, 1, dtype=torch.bool)
+
         for no in range(no_ker):
-            if input_checksum[no] != output_checksum[no]:
-                errors[no] = 1
-                errors_list.append(no)
-        if errors.sum() > 0:
-            return True
-        else:
-            return False
+            diff = torch.abs(input_checksum[no] - output_checksum[no])
+            if diff > tolerance:
+                errors[no] = True
+        return errors.any().item()
     
     def print_detection_detailed_summary(self) -> str:
         """
