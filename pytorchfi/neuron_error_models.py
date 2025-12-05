@@ -248,35 +248,89 @@ class single_bit_flip_func(core.FaultInjection):
             )
             for i in inj_list:
                 self.assert_injection_bounds(index=i)
-                prev_value = output[self.corrupt_batch[i]][self.corrupt_dim[0][i]][
-                    self.corrupt_dim[1][i]
-                ][self.corrupt_dim[2][i]]
+                
+                b = self.corrupt_batch[i]
+                c = self.corrupt_dim[0][i]
+                h = self.corrupt_dim[1][i]
+                w = self.corrupt_dim[2][i]
 
+                prev_value = output[b][c][h][w]
+                prev_val_scalar = prev_value.item()
                 rand_bit = random.randint(0, self.bits - 1)
                 logging.info(f"Random Bit: {rand_bit}")
                 new_value = self._flip_bit_signed(prev_value, range_max, rand_bit)
 
-                output[self.corrupt_batch[i]][self.corrupt_dim[0][i]][
-                    self.corrupt_dim[1][i]
-                ][self.corrupt_dim[2][i]] = new_value
+                output[b][c][h][w] = new_value
+                
+                new_val_scalar = new_value.item()
+                
+                self.log_injection(
+                    layer_idx=self.current_layer,
+                    batch_idx=b,
+                    c=c, h=h, w=w,
+                    bit_pos=rand_bit,
+                    prev_value=prev_val_scalar,
+                    new_value=new_val_scalar,
+                )
 
         else:
             if self.current_layer == corrupt_conv_set:
-                prev_value = output[self.corrupt_batch][self.corrupt_dim[0]][
-                    self.corrupt_dim[1]
-                ][self.corrupt_dim[2]]
+                b = self.corrupt_batch
+                c = self.corrupt_dim[0]
+                h = self.corrupt_dim[1]
+                w = self.corrupt_dim[2]
 
+                prev_value = output[b][c][h][w]
+                prev_val_scalar = prev_value.item() 
+                
                 rand_bit = random.randint(0, self.bits - 1)
                 logging.info(f"Random Bit: {rand_bit}")
                 new_value = self._flip_bit_signed(prev_value, range_max, rand_bit)
 
-                output[self.corrupt_batch][self.corrupt_dim[0]][self.corrupt_dim[1]][
-                    self.corrupt_dim[2]
-                ] = new_value
+                output[b][c][h][w] = new_value
+                
+                new_val_scalar = new_value.item()
+                
+                self.log_injection(
+                    layer_idx=self.current_layer,
+                    batch_idx=b,
+                    c=c, h=h, w=w,
+                    bit_pos=rand_bit,
+                    prev_value=prev_val_scalar,
+                    new_value=new_val_scalar,
+                )
 
         self.update_layer()
         if self.current_layer >= len(self.output_size):
             self.reset_current_layer()
+            
+    def log_injection(self, layer_idx, batch_idx, c, h, w, bit_pos, prev_value, new_value):
+        if isinstance(prev_value, torch.Tensor):
+            try:
+                prev_val = prev_value.item()
+            except Exception:
+                prev_val = prev_value
+        else:
+            prev_val = prev_value
+
+        if isinstance(new_value, torch.Tensor):
+            try:
+                new_val = new_value.item()
+            except Exception:
+                new_val = new_value
+        else:
+            new_val = new_value
+
+        # logging.info(
+        #     f"[INJECTION] layer={layer_idx}, batch={batch_idx}, "
+        #     f"channel={c}, h={h}, w={w}, bit={bit_pos}, "
+        #     f"prev={prev_val}, new={new_val}"
+        # )
+        
+        # Print in console
+        print(f"[INJECTION] layer={layer_idx}, batch={batch_idx}, "
+              f"channel={c}, h={h}, w={w}, bit={bit_pos}, "
+              f"prev={prev_val}, new={new_val}")
 
 
 def random_neuron_single_bit_inj_batched(
@@ -313,6 +367,7 @@ def random_neuron_single_bit_inj(pfi: core.FaultInjection, layer_ranges):
     # TODO Support multiple error models via list
     pfi.set_conv_max(layer_ranges)
 
+    # Random fault location
     batch = random_batch_element(pfi)
     (layer, C, H, W) = random_neuron_location(pfi)
 
