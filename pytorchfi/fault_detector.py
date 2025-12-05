@@ -157,14 +157,9 @@ class FaultDetector:
         Returns:
             True if error detected, False otherwise
         """
-        # print("input type:", type(input_tensors), "len:", len(input_tensors) if isinstance(input_tensors, (tuple, list)) else "-")
         inp = input_tensors[0] if isinstance(input_tensors, (tuple, list)) else input_tensors
         inp_pad = F.pad(inp, (1, 1, 1, 1), mode="constant", value=0)
-        # print("input shape:", inp.shape if inp is not None else None)
-        out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor
-        # print("output shape:", out.shape if out is not None else None)
-        # print (weight_tensor.shape if weight_tensor is not None else None)
-        
+        out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor     
         # Input checksum computation
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
         channels, rows, cols = inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
@@ -186,7 +181,7 @@ class FaultDetector:
             
             for no in range(no_ker):
                 input_checksum[no] = mul[no, :, :, :].sum()
-        
+                
         elif ker_size == 1: # 1x1 convolution
             sum = torch.zeros(channels, 1)
             for ch in range(channels):
@@ -202,25 +197,23 @@ class FaultDetector:
                 input_checksum[no] = mul[no, :].sum()
         else:
             return False # Unsupported kernel size
-                    
-        #print (f"input checksum {input_checksum}")
-        
+                  
         # Output checksum computation
         output_checksum = torch.zeros(no_ker, 1)
         for no in range(no_ker):
             output_checksum[no] = out[0, no, :, :].sum()
         
-        #print(f"output_checksum {output_checksum}")
-        
         # fault detection
-        errors = torch.zeros(no_ker, 1)
-        tolerance = 1e-5  # Adjust due to floating point precision
         errors = torch.zeros(no_ker, 1, dtype=torch.bool)
-
         for no in range(no_ker):
-            diff = torch.abs(input_checksum[no] - output_checksum[no])
-            if diff > tolerance:
+            abs_diff = torch.abs(input_checksum[no] - output_checksum[no])     
+            # Relative error: diff / magnitude
+            magnitude = torch.abs(input_checksum[no]) + 1e-10  # Avoid division by zero
+            relative_error = abs_diff / magnitude
+            # Convert to scalar for printing
+            if relative_error > 1e-4:  # 0.01% error threshold
                 errors[no] = True
+                print(f"Channel {no}: abs_diff={abs_diff.item():.2e}, rel_error={relative_error.item():.2e}")
         return errors.any().item()
     
     def print_detection_detailed_summary(self) -> str:
@@ -235,7 +228,6 @@ class FaultDetector:
         summary_str += f" • Model: {self.model.__class__.__name__}\n"
         summary_str += f" • Total layers monitored: {len(set([name for name, _ in self.layer_inputs]))}\n"
         summary_str += f" • Model's Conv2d layers: {[name for name, module in self.model.named_modules() if isinstance(module, nn.Conv2d)]}\n"
-        #summary_str += f"  Total inferences captured: {len(self.layer_outputs)}\n"
         summary_str += f" • Errors detected: {len(self.get_error_layers())}\n"
         summary_str += f" • Error layer: {self.get_error_layers()}\n\n"
         
