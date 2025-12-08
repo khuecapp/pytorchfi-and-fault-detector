@@ -108,7 +108,8 @@ def main():
     # Inject a single bit flip fault
     print("\nInjecting a single bit flip fault...") 
     layer_ranges = [1.0] * pfi.get_total_layers()
-    nem.random_neuron_single_bit_inj(pfi, layer_ranges)
+    #nem.random_neuron_single_bit_inj(pfi, layer_ranges)
+    nem.random_neuron_multiple_bit_inj(pfi, layer_ranges)
     
     # Setup Fault Detector
     detector = fd.FaultDetector(

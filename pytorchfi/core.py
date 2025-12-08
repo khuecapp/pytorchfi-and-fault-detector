@@ -223,7 +223,7 @@ class FaultInjection:
         self._reset_fault_injection_state()
         custom_injection = False
         injection_function = False
-
+       # print(f"kwargs: {kwargs}")
         if kwargs:
             if "function" in kwargs:
                 logging.info("Declaring Custom Function")
@@ -237,7 +237,12 @@ class FaultInjection:
             self.corrupt_dim[0] = kwargs.get("dim1", [])
             self.corrupt_dim[1] = kwargs.get("dim2", [])
             self.corrupt_dim[2] = kwargs.get("dim3", [])
-
+            print(f"len_corrupt_dim: {len(self.corrupt_dim[0])}")
+            # Inject to multiple neurons in the same layer
+            if len(self.corrupt_dim[0]) > 1:
+                self.corrupt_layer = self.corrupt_layer * len(self.corrupt_dim[0])
+                self.corrupt_batch = self.corrupt_batch * len(self.corrupt_dim[0])
+            print(f"corrupt_layer: {self.corrupt_layer}")
             logging.info(f"Convolution: {self.corrupt_layer}")
             logging.info("Batch, x, y, z:")
             logging.info(
@@ -273,7 +278,7 @@ class FaultInjection:
             or len(batch) != len(dim[2])
         ):
             raise AssertionError("Injection location missing values.")
-
+        #print(f"batch: {batch}, layer: {layer}, dim: {dim}")
         logging.info("Checking bounds before runtime")
         for i in range(len(batch)):
             self.assert_injection_bounds(i)

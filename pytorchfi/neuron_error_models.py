@@ -14,6 +14,33 @@ from pytorchfi.util import random_value
 def random_batch_element(pfi: core.FaultInjection):
     return random.randint(0, pfi.batch_size - 1)
 
+def multiple_random_neuron_location(pfi: core.FaultInjection, layer: int = -1, no_faults: int = 10):
+    if layer == -1:
+        layer = random.randint(0, pfi.get_total_layers() - 1)
+
+    dim = pfi.get_layer_dim(layer)
+    shape = pfi.get_layer_shape(layer)
+
+    dim1_shape = shape[1]
+    dim1_rand = random.sample(range(0, dim1_shape), no_faults) # 10 random neurons
+    dim1_rand.sort()
+    dim2_rand_ls, dim3_rand_ls = [], []
+
+    for di in range(len(dim1_rand)):
+        if dim > 2:
+            dim2_shape = shape[2]
+            dim2_rand = random.randint(0, dim2_shape - 1)  
+        else:
+            dim2_rand = None    
+        if dim > 3:
+            dim3_shape = shape[3]
+            dim3_rand = random.randint(0, dim3_shape - 1)  
+        else:
+            dim3_rand = None
+        dim2_rand_ls.append(dim2_rand)
+        dim3_rand_ls.append(dim3_rand)
+
+    return (layer, dim1_rand, dim2_rand_ls, dim3_rand_ls)
 
 def random_neuron_location(pfi: core.FaultInjection, layer: int = -1):
     if layer == -1:
@@ -233,7 +260,7 @@ class single_bit_flip_func(core.FaultInjection):
 
         return torch.tensor(new_value, dtype=save_type)
 
-    def single_bit_flip_signed_across_batch(self, module, input_val, output):
+    def bit_flip_signed_across_batch(self, module, input_val, output):
         corrupt_conv_set = self.corrupt_layer
         range_max = self.get_conv_max(self.current_layer)
         logging.info(f"Current layer: {self.current_layer}")
@@ -359,7 +386,7 @@ def random_neuron_single_bit_inj_batched(
         dim1=random_c,
         dim2=random_h,
         dim3=random_w,
-        function=pfi.single_bit_flip_signed_across_batch,
+        function=pfi.bit_flip_signed_across_batch,
     )
 
 
@@ -377,5 +404,22 @@ def random_neuron_single_bit_inj(pfi: core.FaultInjection, layer_ranges):
         dim1=[C],
         dim2=[H],
         dim3=[W],
-        function=pfi.single_bit_flip_signed_across_batch,
+        function=pfi.bit_flip_signed_across_batch,
+    )
+
+def random_neuron_multiple_bit_inj(pfi: core.FaultInjection, layer_ranges):
+    # TODO Support multiple error models via list
+    pfi.set_conv_max(layer_ranges)
+
+    # Random fault location
+    batch = random_batch_element(pfi)
+    (layer, C, H, W) = multiple_random_neuron_location(pfi, no_faults=10)
+    
+    return pfi.declare_neuron_fault_injection(
+        batch=[batch],
+        layer_num=[layer],
+        dim1=C,
+        dim2=H,
+        dim3=W,
+        function=pfi.bit_flip_signed_across_batch,
     )
