@@ -36,7 +36,7 @@ class SimpleCNN(nn.Module):
         super().__init__()
         
         # Block 1: Conv 3x3 + Pool
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)   # giữ nguyên spatial size
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)   # Spatial size
         self.conv1_pointwise = nn.Conv2d(16, 16, kernel_size=1)   # 1x1 conv
 
         # Block 2: Conv 3x3 + Pool
@@ -90,10 +90,10 @@ def main():
     dummy = torch.rand((batch_size, *input_shape), device=device)
 
     # Run original model
-    with torch.no_grad():
-        orig_out = model(dummy)
+    # with torch.no_grad():
+    #     orig_out = model(dummy)
 
-    print("Original output (first 5 values):", orig_out[0, :5].cpu().numpy())
+    # print("Original output (first 5 values):", orig_out[0, :5].cpu().numpy())
 
     # Create FaultInjection instance with single_bit_flip_func for bit flip
     pfi = nem.single_bit_flip_func(
@@ -108,7 +108,11 @@ def main():
     # Inject a single bit flip fault
     print("\nInjecting a single bit flip fault...") 
     layer_ranges = [1.0] * pfi.get_total_layers()
-    #nem.random_neuron_single_bit_inj(pfi, layer_ranges)
+    
+    # Single bit flip injection
+    # nem.random_neuron_single_bit_inj(pfi, layer_ranges)
+    
+    # Multiple bit flip injection
     nem.random_neuron_multiple_bit_inj(pfi, layer_ranges)
     
     # Setup Fault Detector
@@ -125,9 +129,8 @@ def main():
         out_neuron_fault = pfi.corrupted_model(dummy)
 
     # print("Output with bit flip fault (first 5 values):", out_neuron_fault[0, :5].cpu().numpy())
-    # Print detection results
-    print("\n")
-    print(detector.print_detection_detailed_summary())
+    # print("\n")
+    # print(detector.print_detection_detailed_summary())
     
 if __name__ == "__main__":
     main()
