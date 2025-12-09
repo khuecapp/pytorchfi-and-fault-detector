@@ -10,7 +10,7 @@ Run (from repo root):
 
 import os
 import sys
-
+import time
 # __file__ = .../pytorchfi/examples/demo_pytorchfi.py
 # -> repo_root = .../pytorchfi
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -77,8 +77,18 @@ class SimpleCNN2(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+def get_detection_result(inj_dict, det_dict):
+    inj_set= set(zip(inj_dict["layer"], inj_dict["batch"], inj_dict["channel"]))
+    det_set = set(zip(det_dict["layer"], det_dict["batch"], det_dict["channel"]))
     
-def main():
+    detected = len(inj_set & det_set)
+    fn       = len(inj_set - det_set)
+    fp       = len(det_set - inj_set)
+    
+    return detected, fn, fp 
+
+def injection_and_detect():
     # Prepare model and data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleCNN().to(device)
@@ -88,12 +98,6 @@ def main():
     batch_size = 1
     input_shape = [3, 32, 32]
     dummy = torch.rand((batch_size, *input_shape), device=device)
-
-    # Run original model
-    # with torch.no_grad():
-    #     orig_out = model(dummy)
-
-    # print("Original output (first 5 values):", orig_out[0, :5].cpu().numpy())
 
     # Create FaultInjection instance with single_bit_flip_func for bit flip
     pfi = nem.single_bit_flip_func(
@@ -106,7 +110,6 @@ def main():
     )
     
     # Inject a single bit flip fault
-    print("\nInjecting a single bit flip fault...") 
     layer_ranges = [1.0] * pfi.get_total_layers()
     
     # Single bit flip injection
@@ -114,23 +117,56 @@ def main():
     
     # Multiple bit flip injection
     nem.random_neuron_multiple_bit_inj(pfi, layer_ranges)
-    
+        
     # Setup Fault Detector
     detector = fd.FaultDetector(
         model=pfi.corrupted_model,
         layer_types=[nn.Conv2d],
         use_cuda=torch.cuda.is_available(),
-        remove_bias=True
+        remove_bias=True,
+        total_faults=pfi.total_faults_injected
     )
-    print("\nDetecting faults with FaultDetector...")
     detector.register_hooks()
 
     with torch.no_grad():
         out_neuron_fault = pfi.corrupted_model(dummy)
+    
+    inj_dict, det_dict = pfi.injection_dict, detector.detected_dict
+    print(f"[RESULT] Injection summary: {inj_dict}")
+    print(f"[RESULT] Detection summary: {det_dict}")
+    
+    detected, fn, fp = get_detection_result(inj_dict, det_dict)
 
-    # print("Output with bit flip fault (first 5 values):", out_neuron_fault[0, :5].cpu().numpy())
-    # print("\n")
-    # print(detector.print_detection_detailed_summary())
+    return detected, fn, fp
+
+def main():
+    N_RUNS = 100 # Change if want more run
+
+    total_detected = 0
+    total_fn = 0
+    total_fp = 0
+
+    for i in range(N_RUNS):
+        detected, fn, fp = injection_and_detect()
+        total_detected += detected
+        total_fn += fn
+        total_fp += fp
+
+        print(f"Run {i+1:3d}: detected={detected}, fn={fn}, fp={fp}")
+
+    print("\n==== Summary after", N_RUNS, "runs ====")
+    print("Total detected:", total_detected)
+    print("Total FN      :", total_fn)
+    print("Total FP      :", total_fp)
     
 if __name__ == "__main__":
-    main()
+    start = time.perf_counter()     
+
+    main()                          
+
+    end = time.perf_counter()       
+    
+    # Compute time for running experiment
+    elapsed = end - start
+    
+    print(f"\n[Time] Finished in {elapsed:.4f} seconds")

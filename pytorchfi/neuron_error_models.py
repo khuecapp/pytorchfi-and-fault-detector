@@ -188,6 +188,11 @@ class single_bit_flip_func(core.FaultInjection):
 
         self.bits = kwargs.get("bits", 8)
         self.layer_ranges = []
+        self.total_faults_injected = 10
+        self.injection_dict = {"layer": [],
+                            "batch": [],
+                            "channel": [] 
+                            }
 
     def set_conv_max(self, data):
         self.layer_ranges = data
@@ -265,6 +270,9 @@ class single_bit_flip_func(core.FaultInjection):
         range_max = self.get_conv_max(self.current_layer)
         logging.info(f"Current layer: {self.current_layer}")
         logging.info(f"Range_max: {range_max}")
+
+        if self.current_layer in corrupt_conv_set:
+            print(f"[INFOR] Injecting fault at layer {self.current_layer}")
 
         if type(corrupt_conv_set) is list:
             inj_list = list(
@@ -353,7 +361,9 @@ class single_bit_flip_func(core.FaultInjection):
         #     f"channel={c}, h={h}, w={w}, bit={bit_pos}, "
         #     f"prev={prev_val}, new={new_val}"
         # )
-        
+        self.injection_dict["layer"].append(layer_idx)
+        self.injection_dict["batch"].append(batch_idx)
+        self.injection_dict["channel"].append(c)
         # Print in console
         print(f"[INJECTION] layer={layer_idx}, batch={batch_idx}, "
               f"channel={c}, h={h}, w={w}, bit={bit_pos}, "

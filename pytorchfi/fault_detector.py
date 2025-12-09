@@ -18,6 +18,7 @@ class FaultDetector:
         #detector_function: Optional[Callable] = None,
         use_cuda: bool = False,
         remove_bias: bool = False,
+        total_faults: int = 0,
     ):
         """
         Initialize Fault Detector
@@ -44,7 +45,13 @@ class FaultDetector:
         self.layer_names = []
         self.layer_weights = []
         self.detection_results = []
-        
+        self.total_errors = 0
+        self.total_faults_injected = total_faults
+        self.layer_indices = {}
+        self.detected_dict = {"layer": [],
+                              "batch": [],
+                              "channel": []
+                              }
         # Hooks
         self.handles = []
             
@@ -76,7 +83,7 @@ class FaultDetector:
             # Get weight data
             weight_data = module.weight.data.clone() if hasattr(module, 'weight') and module.weight is not None else None
             # Set fault detector
-            is_error = self.default_detector(input_val, output_to_process, weight_data)
+            is_error = self.default_detector(input_val, output_to_process, weight_data, layer_name)
             self.detection_results.append({
                 'layer_name': layer_name,
                 'is_error': is_error,
@@ -86,6 +93,14 @@ class FaultDetector:
             })                    
 
         return hook
+    
+    def get_layer_idx(self, layer_name):
+        layer_idx = 0
+        for idx, (name, layer) in enumerate(self.model.named_modules()): # The first iteration is entire network
+            if layer_name == name:   # nếu chỉ target vài loại layer
+                layer_idx = idx - 1
+        return layer_idx
+
     
     def register_hooks(self):
         """
@@ -118,6 +133,7 @@ class FaultDetector:
         self.layer_weights = []
         self.layer_names = []
         self.detection_results = []
+        self.total_errors = 0
     
     # Not used
     def get_layer_data(self, layer_name: str = None) -> dict:
@@ -147,7 +163,7 @@ class FaultDetector:
     def get_error_layers(self) -> List[str]:
         return [det['layer_name'] for det in self.detection_results if det['is_error']]
     
-    def default_detector(self, input_tensors, output_tensor, weight_tensor):
+    def default_detector(self, input_tensors, output_tensor, weight_tensor, layer_name):
         """    
         Args:
             input_tensors: Input tensors
@@ -157,12 +173,13 @@ class FaultDetector:
         Returns:
             True if error detected, False otherwise
         """
+        layer_idx = self.get_layer_idx(layer_name)
         inp = input_tensors[0] if isinstance(input_tensors, (tuple, list)) else input_tensors
         inp_pad = F.pad(inp, (1, 1, 1, 1), mode="constant", value=0)
         out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor     
         # Input checksum computation
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
-        channels, rows, cols = inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
+        batch, channels, rows, cols = inp_pad.shape[0], inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
         input_checksum = torch.zeros(no_ker, 1)
         if ker_size == 3: # 3x3 convolution
             sum = torch.zeros(channels, ker_size, ker_size) 
@@ -205,15 +222,23 @@ class FaultDetector:
         
         # fault detection
         errors = torch.zeros(no_ker, 1, dtype=torch.bool)
-        for no in range(no_ker):
-            abs_diff = torch.abs(input_checksum[no] - output_checksum[no])     
-            # Relative error: diff / magnitude
-            magnitude = torch.abs(input_checksum[no]) + 1e-10  # Avoid division by zero
-            relative_error = abs_diff / magnitude
-            # Convert to scalar for printing
-            if relative_error > 1e-4:  # 0.01% error threshold
-                errors[no] = True
-                print(f"Channel {no}: abs_diff={abs_diff.item():.2e}, rel_error={relative_error.item():.2e}")
+        # print(f"Analyzing layer: {layer_name}")
+        for b in range(batch):
+            for no in range(no_ker):
+                abs_diff = torch.abs(input_checksum[no] - output_checksum[no])     
+                # Relative error: diff / magnitude
+                magnitude = torch.abs(input_checksum[no]) + 1e-10  # Avoid division by zero
+                relative_error = abs_diff / magnitude
+                # Convert to scalar for printing
+                if relative_error > 1e-4:  # 0.01% error threshold
+                    errors[no] = True
+                    print(f"[DETECTION] ERROR in layer={layer_idx} channel={no}: abs_diff={abs_diff.item():.2e}, rel_error={relative_error.item():.2e}")
+                    self.detected_dict["layer"].append(layer_idx)
+                    self.detected_dict["batch"].append(b)
+                    self.detected_dict["channel"].append(no)
+        # Calculate total errors
+        false_count = [i for i, x in enumerate(errors) if x]
+        self.total_errors += len(false_count)
         return errors.any().item()
     
     def print_detection_detailed_summary(self) -> str:
@@ -224,25 +249,25 @@ class FaultDetector:
             Summary string
         """
         summary_str = "============================ FAULT DETECTION SUMMARY ============================\n\n"
-        summary_str += "Overall:\n"
         summary_str += f" • Model: {self.model.__class__.__name__}\n"
         summary_str += f" • Total layers monitored: {len(set([name for name, _ in self.layer_inputs]))}\n"
-        summary_str += f" • Model's Conv2d layers: {[name for name, module in self.model.named_modules() if isinstance(module, nn.Conv2d)]}\n"
-        summary_str += f" • Errors detected: {len(self.get_error_layers())}\n"
+        summary_str += f" • Layer name: {[name for name, module in self.model.named_modules() if isinstance(module, nn.Conv2d)]}\n"
+        summary_str += f" • Total faults injected: {self.total_faults_injected}\n" # Need to be changed
+        summary_str += f" • Total faults detected: {self.total_errors}\n"
         summary_str += f" • Error layer: {self.get_error_layers()}\n\n"
         
-        if self.detection_results:
-            summary_str += "Detailed Results:\n"
-            # summary_str += "-" * 80 + "\n"
-            for det in self.detection_results:
-                status = "Error" if det['is_error'] else "No error"
-                summary_str += f"Layer: {det['layer_name']}\n"
-                summary_str += f" • Status: {status}\n"
-                summary_str += f" • Input shape: {det['input_shape'][0]}\n"
-                summary_str += f" • Weight shape: {det['weight_shape']}\n"
-                summary_str += f" • Output shape: {det['output_shape']}\n\n"
-        else:
-            summary_str += "No errors detected.\n"
+        # if self.detection_results:
+        #     summary_str += "Details:\n"
+        #     # summary_str += "-" * 80 + "\n"
+        #     for det in self.detection_results:
+        #         status = "Error" if det['is_error'] else "No error"
+        #         summary_str += f"Layer: {det['layer_name']}\n"
+        #         summary_str += f" • Status: {status}\n"
+        #         summary_str += f" • Input shape: {det['input_shape'][0]}\n"
+        #         summary_str += f" • Weight shape: {det['weight_shape']}\n"
+        #         summary_str += f" • Output shape: {det['output_shape']}\n\n"
+        # else:
+        #     summary_str += "No errors detected.\n"
         summary_str += "=" * 80 + "\n"
         logging.info(summary_str)
         return summary_str
