@@ -8,7 +8,7 @@ The main purpose of this repo is to:
 - Evaluate the **detection accuracy** of custom fault detectors  
 - Provide demo scripts and utilities for quick experimentation  
 
----
+
 
 ## 📌 Features
 
@@ -22,4 +22,4 @@ The main purpose of this repo is to:
   - Fault detection Rate
 - Ready-to-run experiment demo script
 
----
+
