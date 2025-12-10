@@ -11,6 +11,10 @@ Run (from repo root):
 import os
 import sys
 import time
+import math
+from PIL import Image
+from torchvision import transforms
+
 # __file__ = .../pytorchfi/examples/demo_pytorchfi.py
 # -> repo_root = .../pytorchfi
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -31,6 +35,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 torch.manual_seed(0)
+IN_SIZE = 32
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -65,17 +70,10 @@ class SimpleCNN(nn.Module):
 class SimpleCNN2(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 8, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)
-        self.fc = nn.Linear(16 * 8 * 8, 10)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2)  # 16x16
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2)  # 8x8
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
         return x
 
 def get_detection_result(inj_dict, det_dict):
@@ -94,10 +92,18 @@ def injection_and_detect():
     model = SimpleCNN().to(device)
     model.eval()
 
+    # # Quantize model
+    # model_q = torch.quantization.quantize_dynamic(
+    # model, 
+    # {nn.Conv2d, nn.Linear},  # quantize các lớp Conv2d và Linear
+    # dtype=torch.qint8       # sử dụng int8 cho quantization
+    # )
+    
     # Create a dummy input batch (batch_size=1)
     batch_size = 1
-    input_shape = [3, 32, 32]
-    dummy = torch.rand((batch_size, *input_shape), device=device)
+    input_shape = [3, IN_SIZE, IN_SIZE]
+    # dummy = torch.rand((batch_size, *input_shape), device=device)
+    dummy = get_img("lena.png")
 
     # Create FaultInjection instance with single_bit_flip_func for bit flip
     pfi = nem.single_bit_flip_func(
@@ -109,9 +115,7 @@ def injection_and_detect():
         bits=8  # 8-bit quantization
     )
     
-    # Inject a single bit flip fault
-    layer_ranges = [1.0] * pfi.get_total_layers()
-    
+    layer_ranges = get_max_range(model, dummy)
     # Single bit flip injection
     # nem.random_neuron_single_bit_inj(pfi, layer_ranges)
     
@@ -139,6 +143,57 @@ def injection_and_detect():
 
     return detected, fn, fp
 
+def get_max_range(model, inp, margin=1.1, eps=1e-6):
+    model.eval()
+    acts_max = []
+    
+    def hook_collect_max(module, inp, out):
+        # out: Tensor (N, C, H, W)
+        max_val = out.detach().abs().max().item()
+        acts_max.append(max_val)
+    
+    hooks = []
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            hooks.append(m.register_forward_hook(hook_collect_max))
+    
+    with torch.no_grad():
+        _ = model(inp)
+    
+    layer_ranges = [max(m, eps) * margin for m in acts_max] # 10% margin
+    
+    return layer_ranges
+
+def wilson_score_interval(detected, n, z=1.96):
+    """
+    Wilson Score Interval for detection rate.
+    Returns:
+        tuple: confidence interval 95% (lower, upper).
+    """
+    det_rate = detected/n
+    denominator = 1 + z**2 / n
+    center_adjusted_probability = det_rate + z**2 / (2 * n)
+    margin_of_error = z * math.sqrt((det_rate * (1 - det_rate)) / n + z**2 / (4 * n**2))
+
+    lower_bound = (center_adjusted_probability - margin_of_error) / denominator
+    upper_bound = (center_adjusted_probability + margin_of_error) / denominator
+
+    return lower_bound, upper_bound
+
+def get_img(path):
+    # Abs path
+    base_path = os.path.dirname(os.path.realpath(__file__))
+    img_path = os.path.join(base_path, path) 
+
+    img_path = os.path.abspath(img_path)
+   
+    image = Image.open(img_path)
+    
+    transform = transforms.Compose([transforms.Resize((IN_SIZE, IN_SIZE)), transforms.ToTensor()])
+    dummy_input = transform(image).unsqueeze(0)
+    
+    return dummy_input
+
 def main():
     N_RUNS = 100 # Change if want more run
 
@@ -153,11 +208,16 @@ def main():
         total_fp += fp
 
         print(f"Run {i+1:3d}: detected={detected}, fn={fn}, fp={fp}")
-
+    
+    lower, upper = wilson_score_interval (total_detected, N_RUNS*10) # Tem faults each run
+    detection_rate =(total_detected/(N_RUNS*10))*100
+    
     print("\n==== Summary after", N_RUNS, "runs ====")
     print("Total detected:", total_detected)
     print("Total FN      :", total_fn)
     print("Total FP      :", total_fp)
+    print("FD Rate       :", f"{detection_rate}%")
+    print("FD Rate 95% Confidence interval:", f"({lower:.2f}, {upper:.2f})")
     
 if __name__ == "__main__":
     start = time.perf_counter()     
@@ -170,3 +230,4 @@ if __name__ == "__main__":
     elapsed = end - start
     
     print(f"\n[Time] Finished in {elapsed:.4f} seconds")
+    

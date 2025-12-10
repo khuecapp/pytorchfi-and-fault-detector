@@ -97,7 +97,7 @@ class FaultDetector:
     def get_layer_idx(self, layer_name):
         layer_idx = 0
         for idx, (name, layer) in enumerate(self.model.named_modules()): # The first iteration is entire network
-            if layer_name == name:   # nếu chỉ target vài loại layer
+            if layer_name == name:   # target a specific layer
                 layer_idx = idx - 1
         return layer_idx
 
@@ -180,7 +180,7 @@ class FaultDetector:
         # Input checksum computation
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
         batch, channels, rows, cols = inp_pad.shape[0], inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
-        input_checksum = torch.zeros(no_ker, 1)
+        input_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
         if ker_size == 3: # 3x3 convolution
             sum = torch.zeros(channels, ker_size, ker_size) 
             for ch in range(channels):
@@ -216,21 +216,21 @@ class FaultDetector:
             return False # Unsupported kernel size
                   
         # Output checksum computation
-        output_checksum = torch.zeros(no_ker, 1)
+        output_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
         for no in range(no_ker):
             output_checksum[no] = out[0, no, :, :].sum()
         
         # fault detection
         errors = torch.zeros(no_ker, 1, dtype=torch.bool)
-        # print(f"Analyzing layer: {layer_name}")
+
         for b in range(batch):
             for no in range(no_ker):
                 abs_diff = torch.abs(input_checksum[no] - output_checksum[no])     
                 # Relative error: diff / magnitude
-                magnitude = torch.abs(input_checksum[no]) + 1e-10  # Avoid division by zero
+                magnitude = torch.abs(input_checksum[no])
                 relative_error = abs_diff / magnitude
                 # Convert to scalar for printing
-                if relative_error > 1e-4:  # 0.01% error threshold
+                if relative_error > 5e-5:  # 0.005% error threshold
                     errors[no] = True
                     print(f"[DETECTION] ERROR in layer={layer_idx} channel={no}: abs_diff={abs_diff.item():.2e}, rel_error={relative_error.item():.2e}")
                     self.detected_dict["layer"].append(layer_idx)
@@ -256,18 +256,8 @@ class FaultDetector:
         summary_str += f" • Total faults detected: {self.total_errors}\n"
         summary_str += f" • Error layer: {self.get_error_layers()}\n\n"
         
-        # if self.detection_results:
-        #     summary_str += "Details:\n"
-        #     # summary_str += "-" * 80 + "\n"
-        #     for det in self.detection_results:
-        #         status = "Error" if det['is_error'] else "No error"
-        #         summary_str += f"Layer: {det['layer_name']}\n"
-        #         summary_str += f" • Status: {status}\n"
-        #         summary_str += f" • Input shape: {det['input_shape'][0]}\n"
-        #         summary_str += f" • Weight shape: {det['weight_shape']}\n"
-        #         summary_str += f" • Output shape: {det['output_shape']}\n\n"
-        # else:
-        #     summary_str += "No errors detected.\n"
+        if not self.detection_results:
+            summary_str += "No errors detected.\n"
         summary_str += "=" * 80 + "\n"
         logging.info(summary_str)
         return summary_str

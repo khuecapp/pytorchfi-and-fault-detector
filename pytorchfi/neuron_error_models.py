@@ -291,7 +291,7 @@ class single_bit_flip_func(core.FaultInjection):
 
                 prev_value = output[b][c][h][w]
                 prev_val_scalar = prev_value.item()
-                rand_bit = random.randint(0, self.bits - 1)
+                rand_bit = random.randint(1, self.bits - 1)
                 logging.info(f"Random Bit: {rand_bit}")
                 new_value = self._flip_bit_signed(prev_value, range_max, rand_bit)
 
@@ -420,7 +420,7 @@ def random_neuron_single_bit_inj(pfi: core.FaultInjection, layer_ranges):
 def random_neuron_multiple_bit_inj(pfi: core.FaultInjection, layer_ranges):
     # TODO Support multiple error models via list
     pfi.set_conv_max(layer_ranges)
-
+    
     # Random fault location
     batch = random_batch_element(pfi)
     (layer, C, H, W) = multiple_random_neuron_location(pfi, no_faults=10)
