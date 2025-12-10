@@ -9,7 +9,7 @@ from typing import List, Tuple, Callable, Optional
 #     level=logging.INFO,     
 #     format="%(levelname)s: %(message)s"
 # )
-
+THRESHOLD = 6e-6
 class FaultDetector:
     def __init__(
         self,
@@ -230,7 +230,7 @@ class FaultDetector:
                 magnitude = torch.abs(input_checksum[no])
                 relative_error = abs_diff / magnitude
                 # Convert to scalar for printing
-                if relative_error > 5e-5:  # 0.005% error threshold
+                if relative_error > THRESHOLD:  # 0.005% error threshold
                     errors[no] = True
                     print(f"[DETECTION] ERROR in layer={layer_idx} channel={no}: abs_diff={abs_diff.item():.2e}, rel_error={relative_error.item():.2e}")
                     self.detected_dict["layer"].append(layer_idx)

@@ -9,7 +9,7 @@ from pytorchfi import core
 from pytorchfi.util import random_value
 
 # Helper Functions
-
+BIT_IDX = 0
 
 def random_batch_element(pfi: core.FaultInjection):
     return random.randint(0, pfi.batch_size - 1)
@@ -291,7 +291,7 @@ class single_bit_flip_func(core.FaultInjection):
 
                 prev_value = output[b][c][h][w]
                 prev_val_scalar = prev_value.item()
-                rand_bit = random.randint(1, self.bits - 1)
+                rand_bit = random.randint(BIT_IDX, self.bits - 1)
                 logging.info(f"Random Bit: {rand_bit}")
                 new_value = self._flip_bit_signed(prev_value, range_max, rand_bit)
 

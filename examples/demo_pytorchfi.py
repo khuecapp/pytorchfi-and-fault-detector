@@ -35,7 +35,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 torch.manual_seed(0)
-IN_SIZE = 32
+IN_SIZE = 52
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -89,7 +89,7 @@ def get_detection_result(inj_dict, det_dict):
 def injection_and_detect():
     # Prepare model and data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SimpleCNN().to(device)
+    model = SimpleCNN2().to(device)
     model.eval()
 
     # # Quantize model
@@ -136,6 +136,7 @@ def injection_and_detect():
         out_neuron_fault = pfi.corrupted_model(dummy)
     
     inj_dict, det_dict = pfi.injection_dict, detector.detected_dict
+    
     print(f"[RESULT] Injection summary: {inj_dict}")
     print(f"[RESULT] Detection summary: {det_dict}")
     
@@ -211,13 +212,18 @@ def main():
     
     lower, upper = wilson_score_interval (total_detected, N_RUNS*10) # Tem faults each run
     detection_rate =(total_detected/(N_RUNS*10))*100
+    total = total_detected + total_fn + total_fp
+    det_rate = (total_detected/total)*100
+    fn_rate =  (total_fn/total)*100
+    fp_rate =  (total_fp/total)*100
     
     print("\n==== Summary after", N_RUNS, "runs ====")
     print("Total detected:", total_detected)
     print("Total FN      :", total_fn)
     print("Total FP      :", total_fp)
     print("FD Rate       :", f"{detection_rate}%")
-    print("FD Rate 95% Confidence interval:", f"({lower:.2f}, {upper:.2f})")
+    print("FD Rate Confidence interval 95%:", f"({lower:.4f}, {upper:.4f})")
+    print(f"DET, FP, FN   : {det_rate:.2f}%, {fn_rate:.2f}%, {fp_rate:.2f}%")
     
 if __name__ == "__main__":
     start = time.perf_counter()     
