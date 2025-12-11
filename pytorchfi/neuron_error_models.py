@@ -10,7 +10,7 @@ from pytorchfi.util import random_value
 
 # Helper Functions
 BIT_IDX = 0
-NO_FAULTS = 5
+NO_FAULTS = 10
 
 def random_batch_element(pfi: core.FaultInjection):
     return random.randint(0, pfi.batch_size - 1)

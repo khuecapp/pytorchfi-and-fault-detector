@@ -36,7 +36,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 torch.manual_seed(0)
-IN_SIZE = 52
+IN_SIZE = 26 # Change for diff. input size
+N_RUNS = 100 # Change if want more run
+IS_TVLSI = True # Change if want to use TVLSI21 paper's algorithm
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -129,7 +131,8 @@ def injection_and_detect():
         layer_types=[nn.Conv2d],
         use_cuda=torch.cuda.is_available(),
         remove_bias=True,
-        total_faults=pfi.total_faults_injected
+        total_faults=pfi.total_faults_injected,
+        is_tvlsi=IS_TVLSI
     )
     detector.register_hooks()
 
@@ -197,8 +200,6 @@ def get_img(path):
     return dummy_input
 
 def main():
-    N_RUNS = 100 # Change if want more run
-
     total_detected = 0
     total_fn = 0
     total_fp = 0

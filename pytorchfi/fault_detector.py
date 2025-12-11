@@ -19,6 +19,7 @@ class FaultDetector:
         use_cuda: bool = False,
         remove_bias: bool = False,
         total_faults: int = 0,
+        is_tvlsi: bool = False
     ):
         """
         Initialize Fault Detector
@@ -38,6 +39,7 @@ class FaultDetector:
         #self.detector_function = detector_function
         self.use_cuda = use_cuda
         self.remove_bias = remove_bias
+        self.is_tvlsi = is_tvlsi
         
         # Store captured data
         self.layer_inputs = []
@@ -181,24 +183,62 @@ class FaultDetector:
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
         batch, channels, rows, cols = inp_pad.shape[0], inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
         input_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
+        sum = torch.zeros(channels, ker_size, ker_size)
+        mul = torch.zeros(no_ker, channels, ker_size, ker_size)
         if ker_size == 3: # 3x3 convolution
-            sum = torch.zeros(channels, ker_size, ker_size) 
-            for ch in range(channels):
-                for r in range(ker_size):
-                    for c in range(ker_size):
-                        window = inp_pad[0, ch, r:r+rows-2, c:c+cols-2]
-                        sum[ch, r, c] = window.sum()
-
-            mul = torch.zeros(no_ker, channels, ker_size, ker_size) 
-            for no in range(no_ker):
+            if not self.is_tvlsi:
+                #sum = torch.zeros(channels, ker_size, ker_size) 
                 for ch in range(channels):
                     for r in range(ker_size):
                         for c in range(ker_size):
-                            mul[no, ch, r, c] = weight_tensor[no, ch, r, c] * sum[ch, r, c]
-            
-            for no in range(no_ker):
-                input_checksum[no] = mul[no, :, :, :].sum()
+                            window = inp_pad[0, ch, r:r+rows-2, c:c+cols-2]
+                            sum[ch, r, c] = window.sum()
+
+                #mul = torch.zeros(no_ker, channels, ker_size, ker_size) 
+                for no in range(no_ker):
+                    for ch in range(channels):
+                        for r in range(ker_size):
+                            for c in range(ker_size):
+                                mul[no, ch, r, c] = weight_tensor[no, ch, r, c] * sum[ch, r, c]
                 
+                for no in range(no_ker):
+                    input_checksum[no] = mul[no, :, :, :].sum()
+            else:
+                IN_CH = channels
+                W = cols
+                H = rows
+                M = ker_size
+                in_channel_sum = torch.zeros(IN_CH, 1, 1)
+
+                for ch in range(IN_CH):
+                    ch_sum = inp_pad[0, ch, :, :]
+                    in_channel_sum[ch] = ch_sum.sum()
+                    
+                #sum = torch.zeros(channels, ker_size, ker_size)
+                sub = torch.zeros(channels, ker_size, ker_size)
+                for ch in range(channels):
+                    for i in range(cols):
+                        for j in range(rows):
+                            for m in range(ker_size):
+                                for n in range(ker_size):
+                                    if m>i or i>H-M+m or n>j or j>H-M+n:
+                                        sub[ch, m, n] += inp_pad[0, ch, i, j]
+                
+                for ch in range(IN_CH):
+                    for i in range(ker_size):
+                        for j in range(ker_size):
+                            sum[ch, i, j] = in_channel_sum[ch] - sub[ch, i, j]
+                
+                #mul = torch.zeros(no_ker, channels, ker_size, ker_size)
+                for no in range(no_ker):
+                    for ch in range(channels):
+                        for r in range(ker_size):
+                            for c in range(ker_size):
+                                mul[no, ch, r, c] = weight_tensor[no, ch, r, c] * sum[ch, r, c]
+                
+                for no in range(no_ker):
+                    input_checksum[no] = mul[no, :, :, :].sum()
+                    
         elif ker_size == 1: # 1x1 convolution
             sum = torch.zeros(channels, 1)
             for ch in range(channels):
