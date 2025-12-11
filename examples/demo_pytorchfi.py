@@ -28,6 +28,7 @@ from pytorchfi import core
 from pytorchfi import neuron_error_models as nem
 from pytorchfi import weight_error_models as wem
 from pytorchfi import fault_detector as fd
+from pytorchfi.neuron_error_models import NO_FAULTS
 
 
 import torch
@@ -210,8 +211,8 @@ def main():
 
         print(f"Run {i+1:3d}: detected={detected}, fn={fn}, fp={fp}")
     
-    lower, upper = wilson_score_interval (total_detected, N_RUNS*10) # Tem faults each run
-    detection_rate =(total_detected/(N_RUNS*10))*100
+    lower, upper = wilson_score_interval (total_detected, N_RUNS*NO_FAULTS) # Tem faults each run
+    detection_rate =(total_detected/(N_RUNS*NO_FAULTS))*100
     total = total_detected + total_fn + total_fp
     det_rate = (total_detected/total)*100
     fn_rate =  (total_fn/total)*100

@@ -10,6 +10,7 @@ from pytorchfi.util import random_value
 
 # Helper Functions
 BIT_IDX = 0
+NO_FAULTS = 5
 
 def random_batch_element(pfi: core.FaultInjection):
     return random.randint(0, pfi.batch_size - 1)
@@ -423,7 +424,7 @@ def random_neuron_multiple_bit_inj(pfi: core.FaultInjection, layer_ranges):
     
     # Random fault location
     batch = random_batch_element(pfi)
-    (layer, C, H, W) = multiple_random_neuron_location(pfi, no_faults=10)
+    (layer, C, H, W) = multiple_random_neuron_location(pfi, no_faults=NO_FAULTS)
     
     return pfi.declare_neuron_fault_injection(
         batch=[batch],
