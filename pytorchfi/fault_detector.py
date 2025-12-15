@@ -98,10 +98,14 @@ class FaultDetector:
     
     def get_layer_idx(self, layer_name):
         layer_idx = 0
-        for idx, (name, layer) in enumerate(self.model.named_modules()): # The first iteration is entire network
-            if layer_name == name:   # target a specific layer
-                layer_idx = idx - 1
-        return layer_idx
+        for name, layer in self.model.named_modules():
+            if self._is_target_layer(layer):
+                if name == layer_name:
+                    return layer_idx
+                layer_idx += 1
+
+        # If not found among target layers, return -1 as fallback
+        return -1
 
     
     def register_hooks(self):
