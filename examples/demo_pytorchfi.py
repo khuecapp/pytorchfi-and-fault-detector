@@ -36,9 +36,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 torch.manual_seed(0)
-IN_SIZE = 26 # Change for diff. input size
-N_RUNS = 100 # Change if want more run
+IN_SIZE = 13 # Change for diff. input size
+N_RUNS = 10000 # Change if want more run
 IS_TVLSI = True # Change if want to use TVLSI21 paper's algorithm
+if IS_TVLSI:
+    NAME = "TVLSI'21"
+else:
+    NAME = "OURS"
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -219,11 +223,11 @@ def main():
     fn_rate =  (total_fn/total)*100
     fp_rate =  (total_fp/total)*100
     
-    print("\n==== Summary after", N_RUNS, "runs ====")
+    print("\n==== Summary after", N_RUNS, "runs", NAME, "====")
     print("Total detected:", total_detected)
     print("Total FN      :", total_fn)
     print("Total FP      :", total_fp)
-    print("FD Rate       :", f"{detection_rate}%")
+    print("FD Rate       :", f"{detection_rate:.2f}%")
     print("FD Rate Confidence interval 95%:", f"({lower:.4f}, {upper:.4f})")
     print(f"DET, FP, FN   : {det_rate:.2f}%, {fn_rate:.2f}%, {fp_rate:.2f}%")
     

@@ -9,7 +9,7 @@ from typing import List, Tuple, Callable, Optional
 #     level=logging.INFO,     
 #     format="%(levelname)s: %(message)s"
 # )
-THRESHOLD = 6e-6
+THRESHOLD = 8e-6
 class FaultDetector:
     def __init__(
         self,
@@ -204,6 +204,7 @@ class FaultDetector:
                 for no in range(no_ker):
                     input_checksum[no] = mul[no, :, :, :].sum()
             else:
+                print("TVLSI")
                 IN_CH = channels
                 W = cols
                 H = rows
@@ -221,7 +222,7 @@ class FaultDetector:
                         for j in range(rows):
                             for m in range(ker_size):
                                 for n in range(ker_size):
-                                    if m>i or i>H-M+m or n>j or j>H-M+n:
+                                    if m>i or i>H-M+m or n>j or j>W-M+n:
                                         sub[ch, m, n] += inp_pad[0, ch, i, j]
                 
                 for ch in range(IN_CH):
@@ -267,10 +268,10 @@ class FaultDetector:
             for no in range(no_ker):
                 abs_diff = torch.abs(input_checksum[no] - output_checksum[no])     
                 # Relative error: diff / magnitude
-                magnitude = torch.abs(input_checksum[no])
+                magnitude = torch.abs(output_checksum[no])
                 relative_error = abs_diff / magnitude
                 # Convert to scalar for printing
-                if relative_error > THRESHOLD:  # 0.005% error threshold
+                if relative_error > THRESHOLD:
                     errors[no] = True
                     print(f"[DETECTION] ERROR in layer={layer_idx} channel={no}: abs_diff={abs_diff.item():.2e}, rel_error={relative_error.item():.2e}")
                     self.detected_dict["layer"].append(layer_idx)
