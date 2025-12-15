@@ -31,10 +31,6 @@ from pytorchfi import fault_detector as fd
 from pytorchfi.neuron_error_models import NO_FAULTS
 
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
 torch.manual_seed(0)
 IN_SIZE = 13 # Change for diff. input size
 N_RUNS = 10000 # Change if want more run
