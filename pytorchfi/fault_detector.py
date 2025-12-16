@@ -19,7 +19,8 @@ class FaultDetector:
         use_cuda: bool = False,
         remove_bias: bool = False,
         total_faults: int = 0,
-        is_tvlsi: bool = False
+        is_tvlsi: bool = False,
+        is_tc: bool = False
     ):
         """
         Initialize Fault Detector
@@ -40,6 +41,7 @@ class FaultDetector:
         self.use_cuda = use_cuda
         self.remove_bias = remove_bias
         self.is_tvlsi = is_tvlsi
+        self.is_tc = is_tc
         
         # Store captured data
         self.layer_inputs = []
@@ -181,12 +183,15 @@ class FaultDetector:
         out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor     
         # Input checksum computation
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
+        
         batch, channels, rows, cols = inp_pad.shape[0], inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
         input_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
+        
         sum = torch.zeros(channels, ker_size, ker_size)
         mul = torch.zeros(no_ker, channels, ker_size, ker_size)
         if ker_size == 3: # 3x3 convolution
-            if not self.is_tvlsi:
+            # OURS
+            if not self.is_tvlsi and not self.is_tc:
                 #sum = torch.zeros(channels, ker_size, ker_size) 
                 for ch in range(channels):
                     for r in range(ker_size):
@@ -203,7 +208,8 @@ class FaultDetector:
                 
                 for no in range(no_ker):
                     input_checksum[no] = mul[no, :, :, :].sum()
-            else:
+            # TVLSI
+            elif self.is_tvlsi:
                 print("TVLSI")
                 IN_CH = channels
                 W = cols
@@ -239,6 +245,21 @@ class FaultDetector:
                 
                 for no in range(no_ker):
                     input_checksum[no] = mul[no, :, :, :].sum()
+            # TC
+            elif self.is_tc:
+                print("TC")
+                # Summation vector of input (matrix B)
+                inp_col = F.unfold(inp_pad, kernel_size=ker_size, padding=0, stride=1)[0]
+                inp_sum = inp_col.sum(dim=1)
+                
+                # Summation vector of kernel (matrix A)
+                K = inp_col.shape[0]
+                weight_mat = weight_tensor.view(no_ker, K)
+                weight_row_vectors = weight_mat.unbind(dim=0)
+                
+                # Input checksum: Summation A @ summation B
+                for i in range(len(weight_row_vectors)):
+                    input_checksum[i] = weight_row_vectors[i] @ inp_sum
                     
         elif ker_size == 1: # 1x1 convolution
             sum = torch.zeros(channels, 1)
@@ -258,8 +279,18 @@ class FaultDetector:
                   
         # Output checksum computation
         output_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
-        for no in range(no_ker):
-            output_checksum[no] = out[0, no, :, :].sum()
+        if not self.is_tc:
+            for no in range(no_ker):
+                output_checksum[no] = out[0, no, :, :].sum()
+        elif self.is_tc:
+            # Output checksum: matrix C
+            Hout, Wout = out.shape[2], out.shape[3]
+            L = Hout * Wout
+            out_flat = out.view(no_ker, L)  # C in GEMM form
+            output_row_vectors = out_flat.unbind(dim=0)
+            
+            for i in range(len(output_row_vectors)):
+                output_checksum[i] = output_row_vectors[i].sum()
         
         # fault detection
         errors = torch.zeros(no_ker, 1, dtype=torch.bool)

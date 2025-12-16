@@ -31,13 +31,18 @@ from pytorchfi import fault_detector as fd
 from pytorchfi.neuron_error_models import NO_FAULTS
 
 torch.manual_seed(0)
-IN_SIZE = 13 # Change for diff. input size
+IN_SIZE = 26 # Change for diff. input size
 N_RUNS = 10000 # Change if want more run
-IS_TVLSI = True # Change if want to use TVLSI21 paper's algorithm
+# Change algorithm, one true at a time (e.g. IS_TVLSI = FALSE, IS_TC = FALSE => "OURS" algorithm)
+IS_TVLSI = False 
+IS_TC = True
 if IS_TVLSI:
     NAME = "TVLSI'21"
+elif IS_TC:
+    NAME = "TC'23"
 else:
     NAME = "OURS"
+    
 class SimpleCNN(nn.Module):
     def __init__(self):
         super().__init__()
@@ -124,7 +129,8 @@ def injection_and_detect():
         use_cuda=torch.cuda.is_available(),
         remove_bias=True,
         total_faults=pfi.total_faults_injected,
-        is_tvlsi=IS_TVLSI
+        is_tvlsi=IS_TVLSI,
+        is_tc= IS_TC
     )
     detector.register_hooks()
 
