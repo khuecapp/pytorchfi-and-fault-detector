@@ -20,7 +20,8 @@ class FaultDetector:
         remove_bias: bool = False,
         total_faults: int = 0,
         is_tvlsi: bool = False,
-        is_tc: bool = False
+        is_tc: bool = False,
+        is_iccd: bool = False
     ):
         """
         Initialize Fault Detector
@@ -42,6 +43,7 @@ class FaultDetector:
         self.remove_bias = remove_bias
         self.is_tvlsi = is_tvlsi
         self.is_tc = is_tc
+        self.is_iccd = is_iccd
         
         # Store captured data
         self.layer_inputs = []
@@ -183,7 +185,7 @@ class FaultDetector:
         out = output_tensor[0] if isinstance(output_tensor, (tuple, list)) else output_tensor     
         # Input checksum computation
         no_ker, ker_size = weight_tensor.shape[0], weight_tensor.shape[2] 
-        
+        print(inp_pad.shape)
         batch, channels, rows, cols = inp_pad.shape[0], inp_pad.shape[1], inp_pad.shape[2], inp_pad.shape[3]
         input_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
         
@@ -191,7 +193,7 @@ class FaultDetector:
         mul = torch.zeros(no_ker, channels, ker_size, ker_size)
         if ker_size == 3: # 3x3 convolution
             # OURS
-            if not self.is_tvlsi and not self.is_tc:
+            if not self.is_tvlsi and not self.is_tc and not self.is_iccd:
                 #sum = torch.zeros(channels, ker_size, ker_size) 
                 for ch in range(channels):
                     for r in range(ker_size):
@@ -208,6 +210,7 @@ class FaultDetector:
                 
                 for no in range(no_ker):
                     input_checksum[no] = mul[no, :, :, :].sum()
+            
             # TVLSI
             elif self.is_tvlsi:
                 print("TVLSI")
@@ -245,6 +248,7 @@ class FaultDetector:
                 
                 for no in range(no_ker):
                     input_checksum[no] = mul[no, :, :, :].sum()
+            
             # TC
             elif self.is_tc:
                 print("TC")
@@ -260,6 +264,34 @@ class FaultDetector:
                 # Input checksum: Summation A @ summation B
                 for i in range(len(weight_row_vectors)):
                     input_checksum[i] = weight_row_vectors[i] @ inp_sum
+            
+            # iccd
+            elif self.is_iccd:
+                print("ICCD")
+                # Input - matrix B
+                inp_col = F.unfold(inp_pad, kernel_size=ker_size, padding=0, stride=1)[0]
+                K = ker_size * ker_size
+                M = inp.shape[3]
+                print(M)
+                inp_tmp_ls = []
+                for i in range(0, inp_col.shape[0], K):
+                    inp_tmp = torch.zeros(K, M)
+                    for j in range (0, inp_col.shape[1], M):
+                        window = inp_col[i:i+K, j:j+M]
+                        inp_tmp += window  
+                    inp_tmp_ls.append(inp_tmp)
+                
+                # Kernel (Vector A)
+                inp_cs_tmp = torch.zeros(1, M)
+                K = inp_col.shape[0]
+                weight_mat = weight_tensor.view(no_ker, K)
+                for i in range(no_ker):
+                    split_vectors = torch.chunk(weight_mat[i], 3, dim=0)
+                    for split in range(len(split_vectors)):
+                        cs_tmp = torch.matmul(split_vectors[split], inp_tmp_ls[split])
+                        inp_cs_tmp += cs_tmp
+                    input_checksum[i] = inp_cs_tmp.sum()
+                    inp_cs_tmp.zero_()
                     
         elif ker_size == 1: # 1x1 convolution
             sum = torch.zeros(channels, 1)
@@ -279,10 +311,10 @@ class FaultDetector:
                   
         # Output checksum computation
         output_checksum = torch.zeros(no_ker, 1, dtype=torch.float32, device=weight_tensor.device)
-        if not self.is_tc:
+        if not self.is_tc and not self.is_iccd:
             for no in range(no_ker):
                 output_checksum[no] = out[0, no, :, :].sum()
-        elif self.is_tc:
+        elif self.is_tc or self.is_iccd:
             # Output checksum: matrix C
             Hout, Wout = out.shape[2], out.shape[3]
             L = Hout * Wout

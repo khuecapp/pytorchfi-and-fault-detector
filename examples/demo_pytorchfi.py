@@ -31,15 +31,18 @@ from pytorchfi import fault_detector as fd
 from pytorchfi.neuron_error_models import NO_FAULTS
 
 torch.manual_seed(0)
-IN_SIZE = 26 # Change for diff. input size
+IN_SIZE = 52 # Change for diff. input size
 N_RUNS = 10000 # Change if want more run
 # Change algorithm, one true at a time (e.g. IS_TVLSI = FALSE, IS_TC = FALSE => "OURS" algorithm)
 IS_TVLSI = False 
-IS_TC = True
+IS_TC = False
+IS_ICCD = True
 if IS_TVLSI:
     NAME = "TVLSI'21"
 elif IS_TC:
     NAME = "TC'23"
+elif IS_ICCD:
+    NAME = "ICCD'22"
 else:
     NAME = "OURS"
     
@@ -130,7 +133,8 @@ def injection_and_detect():
         remove_bias=True,
         total_faults=pfi.total_faults_injected,
         is_tvlsi=IS_TVLSI,
-        is_tc= IS_TC
+        is_tc=IS_TC,
+        is_iccd=IS_ICCD
     )
     detector.register_hooks()
 
@@ -210,7 +214,7 @@ def main():
 
         print(f"Run {i+1:3d}: detected={detected}, fn={fn}, fp={fp}")
     
-    lower, upper = wilson_score_interval (total_detected, N_RUNS*NO_FAULTS) # Tem faults each run
+    lower, upper = wilson_score_interval (total_detected, N_RUNS*NO_FAULTS) # Ten faults each run
     detection_rate =(total_detected/(N_RUNS*NO_FAULTS))*100
     total = total_detected + total_fn + total_fp
     det_rate = (total_detected/total)*100
@@ -236,4 +240,3 @@ if __name__ == "__main__":
     elapsed = end - start
     
     print(f"\n[Time] Finished in {elapsed:.4f} seconds")
-    
