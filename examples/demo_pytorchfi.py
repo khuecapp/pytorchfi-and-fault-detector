@@ -101,6 +101,13 @@ def injection_and_detect():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SimpleCNN2().to(device)
     model.eval()
+
+    # # Quantize model
+    # model_q = torch.quantization.quantize_dynamic(
+    # model, 
+    # {nn.Conv2d, nn.Linear},  # quantize các lớp Conv2d và Linear
+    # dtype=torch.qint8       # sử dụng int8 cho quantization
+    # )
     
     # Create a dummy input batch (batch_size=1)
     batch_size = 1
